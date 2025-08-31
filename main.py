@@ -20,7 +20,7 @@ from telegram.ext import (
 
 # Настройки
 OWNER_USERNAME = "diasmazhenov"
-DB = firestore.Client()  # Инициализация Firestore
+DB = firestore.Client()  # Инициализация Firestore (синхронная)
 
 # Клавиатуры
 def get_type_keyboard():
@@ -56,7 +56,7 @@ def get_budget_keyboard():
     ])
 
 
-# Точка входа
+# Точка входа для Cloud Functions
 @http
 def telegram_bot(request):
     return asyncio.run(handle_request(request))
@@ -70,6 +70,7 @@ async def handle_request(request):
 
     app = Application.builder().token(token).build()
 
+    # Обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, contact_handler))
@@ -89,14 +90,13 @@ async def handle_request(request):
     return "OK", 200
 
 
-# --- Логика ---
+# --- Логика бота ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     doc_ref = DB.collection("users").document(str(user_id))
-    doc = doc_ref.get()
 
-    # Очистить старые данные, если есть
-    if doc.exists:
+    # Очистить старые данные
+    if doc_ref.get().exists:
         doc_ref.delete()
 
     await update.message.reply_text(
@@ -105,7 +105,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Нажмите кнопку ниже, чтобы начать:"
     )
 
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Заполнить бриф", callback_data="start_brief")]])
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Заполнить бриф", callback_data="start_brief")]
+    ])
     await update.message.reply_text("Готовы начать?", reply_markup=keyboard)
 
 
@@ -123,31 +125,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("step1:"):
         type_ = data.split(":", 1)[1]
-        await doc_ref.set({"type": type_})
+        doc_ref.set({"type": type_})  # ✅ Без await
         await query.edit_message_text("🔹 Шаг 2: Какие дополнительные функции нужны?")
         await query.edit_message_reply_markup(reply_markup=get_features_keyboard())
 
     elif data.startswith("step2:"):
         features = data.split(":", 1)[1]
-        await doc_ref.update({"features": features})
+        doc_ref.update({"features": features})  # ✅ Без await
         await query.edit_message_text("🔹 Шаг 3: Какие сроки реализации?")
         await query.edit_message_reply_markup(reply_markup=get_timeline_keyboard())
 
     elif data.startswith("step3:"):
         timeline = data.split(":", 1)[1]
-        await doc_ref.update({"timeline": timeline})
+        doc_ref.update({"timeline": timeline})  # ✅ Без await
         await query.edit_message_text("🔹 Шаг 4: Ваш бюджет?")
         await query.edit_message_reply_markup(reply_markup=get_budget_keyboard())
 
     elif data.startswith("step4:"):
         budget = data.split(":", 1)[1]
-        await doc_ref.update({"budget": budget})
+        doc_ref.update({"budget": budget})  # ✅ Без await
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
             "🔹 Последний шаг: оставьте контакт (email или телефон), чтобы я с вами связался:",
             reply_markup=ReplyKeyboardRemove()
         )
-        await doc_ref.update({"awaiting_contact": True})
+        doc_ref.update({"awaiting_contact": True})  # ✅ Без await
 
 
 async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,15 +157,19 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc_ref = DB.collection("users").document(str(user_id))
     doc = doc_ref.get()
 
-    if not doc.exists or not doc.to_dict().get("awaiting_contact"):
+    if not doc.exists:
+        await update.message.reply_text("Чтобы начать, нажмите /start")
+        return
+
+    data = doc.to_dict()
+    if not data.get("awaiting_contact"):
         await update.message.reply_text("Чтобы начать, нажмите /start")
         return
 
     contact = update.message.text
-    await doc_ref.update({"contact": contact})
+    doc_ref.update({"contact": contact})  # ✅ Без await
 
     # Формируем бриф
-    data = doc.to_dict()
     brief = (
         "📩 *Новый бриф от клиента*\n\n"
         f"👤 Имя: {update.effective_user.full_name}\n"
@@ -176,6 +182,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📞 Контакт: {contact}"
     )
 
+    # Отправляем тебе
     try:
         owner = await context.bot.get_chat(f"@{OWNER_USERNAME}")
         await context.bot.send_message(
@@ -183,9 +190,10 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=brief,
             parse_mode="Markdown"
         )
-        print("[INFO] Бриф отправлен владельцу")
     except Exception as e:
         print(f"[ERROR] Не удалось отправить бриф: {e}")
+        # Альтернатива: используй числовой ID
+        # await context.bot.send_message(chat_id=123456789, text=brief)
 
     # Подтверждение клиенту
     await update.message.reply_text(
@@ -193,5 +201,5 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Свяжусь с вами в ближайшее время."
     )
 
-    # Очистка данных
-    await doc_ref.delete()
+    # Удаляем данные
+    doc_ref.delete()  # ✅ Без await
