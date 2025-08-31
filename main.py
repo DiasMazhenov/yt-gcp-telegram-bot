@@ -1,6 +1,5 @@
 import asyncio
 import os
-import re
 from google.cloud import firestore
 
 from functions_framework import http
@@ -19,20 +18,28 @@ from telegram.ext import (
     filters,
 )
 
-# Инициализация
+# Инициализация Firestore
 DB = firestore.Client()
 
-# Настройки из переменных окружения
-OWNER_ID = int(os.environ.get("OWNER_ID"))  # Лучше использовать ID
-# OWNER_USERNAME = "diasmazhenov"  # Резервный вариант
+# === Проверка и загрузка OWNER_ID ===
+OWNER_ID_STR = os.environ.get("OWNER_ID")
+if not OWNER_ID_STR or not OWNER_ID_STR.strip():
+    raise RuntimeError("Переменная окружения OWNER_ID обязательна и не может быть пустой")
+try:
+    OWNER_ID = int(OWNER_ID_STR.strip())
+except ValueError:
+    raise RuntimeError(f"OWNER_ID должен быть числом, получено: {OWNER_ID_STR}")
 
-# Валидация контакта
+# === Валидация контакта ===
 def is_valid_contact(text: str) -> bool:
+    text = text.strip()
+    # Простая проверка email или телефона
     email = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     phone = r'^\+?[\d\s\-\(\)]{7,}$'
-    return re.match(email, text.strip()) or re.match(phone, text.strip())
+    import re
+    return re.match(email, text) or re.match(phone, text)
 
-# Клавиатуры (без изменений)
+# === Клавиатуры ===
 def get_type_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Визитка", callback_data="step1:Визитка")],
@@ -66,46 +73,63 @@ def get_budget_keyboard():
     ])
 
 
+# === Точка входа для Cloud Functions ===
 @http
 def telegram_bot(request):
     return asyncio.run(handle_request(request))
 
 
 async def handle_request(request):
+    # Получаем токен
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
-        print("ERROR: TELEGRAM_BOT_TOKEN not set")
+        print("ERROR: TELEGRAM_BOT_TOKEN не задан в переменных окружения")
         return "No token", 500
 
+    # Создаём приложение
     app = Application.builder().token(token).build()
+
+    # Обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, contact_handler))
 
+    # Установка вебхука
     if request.method == "GET":
         webhook_url = f"https://{request.host}/telegram_bot"
-        await app.bot.set_webhook(webhook_url)
-        return "Webhook set", 200
+        try:
+            await app.bot.set_webhook(webhook_url)
+            print(f"Webhook установлен: {webhook_url}")
+            return "Webhook set", 200
+        except Exception as e:
+            print(f"Ошибка установки вебхука: {e}")
+            return "Failed to set webhook", 500
 
+    # Обработка обновления
     if not request.is_json:
         return "Bad Request", 400
 
-    update = Update.de_json(request.get_json(), app.bot)
-    async with app:
-        await app.process_update(update)
+    try:
+        update = Update.de_json(request.get_json(), app.bot)
+        async with app:
+            await app.process_update(update)
+        return "OK", 200
+    except Exception as e:
+        print(f"[ERROR] Обработка обновления: {e}")
+        return "Internal Server Error", 500
 
-    return "OK", 200
 
-
+# === Логика бота ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     doc_ref = DB.collection("users").document(str(user_id))
 
+    # Очистка старых данных
     try:
         if doc_ref.get().exists:
             doc_ref.delete()
-    except:
-        pass  # Игнорируем ошибки при очистке
+    except Exception as e:
+        print(f"[WARN] Не удалось удалить старый документ: {e}")
 
     await update.message.reply_text(
         "Привет! 👋\n"
@@ -170,6 +194,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc_ref = DB.collection("users").document(str(user_id))
 
     try:
+        # Проверяем, есть ли сессия
         doc = doc_ref.get()
         if not doc.exists:
             await update.message.reply_text("Чтобы начать, нажмите /start")
@@ -187,8 +212,10 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Сохраняем контакт
         doc_ref.update({"contact": contact})
 
+        # Формируем сообщение
         brief = (
             "📩 *Новый бриф от клиента*\n\n"
             f"👤 Имя: {update.effective_user.full_name}\n"
@@ -201,22 +228,28 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📞 Контакт: {contact}"
         )
 
+        # Отправляем владельцу
         try:
-            # Сначала пытаемся по ID
             await context.bot.send_message(
                 chat_id=OWNER_ID,
                 text=brief,
                 parse_mode="Markdown"
             )
+            print(f"[INFO] Бриф отправлен владельцу {OWNER_ID}")
         except Exception as e:
-            print(f"[ERROR] Не удалось отправить владельцу: {e}")
-            # Резерв: можно попробовать через username, но лучше не надо
+            print(f"[ERROR] Не удалось отправить бриф: {e}")
+            await update.message.reply_text(
+                "Спасибо! Я получил ваш бриф. Свяжусь с вами в ближайшее время."
+            )
+            return
 
+        # Подтверждение клиенту
         await update.message.reply_text(
             "✅ Спасибо! Я получил ваш бриф.\n"
             "Свяжусь с вами в ближайшее время."
         )
 
+        # Очистка
         doc_ref.delete()
 
     except Exception as e:
