@@ -21,14 +21,8 @@ from telegram.ext import (
 # Инициализация Firestore
 DB = firestore.Client()
 
-# === Загрузка и проверка OWNER_ID ===
-OWNER_ID_STR = os.environ.get("OWNER_ID")
-if not OWNER_ID_STR or not OWNER_ID_STR.strip():
-    raise RuntimeError("Переменная окружения OWNER_ID обязательна и не может быть пустой")
-try:
-    OWNER_ID = int(OWNER_ID_STR.strip())
-except ValueError:
-    raise RuntimeError(f"OWNER_ID должен быть целым числом, получено: {OWNER_ID_STR}")
+# === ID канала для отправки брифов ===
+CHANNEL_ID = "-1002903538672"  # Заменять не нужно — уже верно
 
 # === Валидация контакта (email или телефон) ===
 def is_valid_contact(text: str) -> bool:
@@ -227,20 +221,19 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Логируем попытку отправки
-        print(f"[DEBUG] Попытка отправить бриф на chat_id={OWNER_ID}")
+        print(f"[DEBUG] Попытка отправить бриф в канал: {CHANNEL_ID}")
         print(f"[DEBUG] Текст сообщения:\n{brief}")
 
-        # Отправляем владельцу
+        # Отправляем в канал
         try:
             await context.bot.send_message(
-                chat_id=OWNER_ID,
+                chat_id=CHANNEL_ID,
                 text=brief,
                 parse_mode="Markdown"
             )
-            print(f"[INFO] ✅ Бриф успешно отправлен на {OWNER_ID}")
+            print(f"[INFO] ✅ Бриф успешно отправлен в канал {CHANNEL_ID}")
         except Exception as e:
-            print(f"[ERROR] ❌ Не удалось отправить бриф: {e}")
-            # Дополнительное логирование
+            print(f"[ERROR] ❌ Не удалось отправить бриф в канал: {e}")
             import traceback
             traceback.print_exc()
 
