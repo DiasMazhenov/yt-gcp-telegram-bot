@@ -13,14 +13,14 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    filters,
     ContextTypes,
+    filters,
 )
 
 # Твой Telegram username (куда придёт бриф)
 OWNER_USERNAME = "diasmazhenov"
 
-# Клавиатуры по шагам
+# Клавиатуры
 def get_type_keyboard():
     return InlineKeyboardMarkup(
         [
@@ -61,10 +61,12 @@ def get_budget_keyboard():
         ]
     )
 
-# Точка входа для Cloud Functions
+
+# Точка входа для Google Cloud Functions
 @http
 def telegram_bot(request):
     return asyncio.run(handle_request(request))
+
 
 async def handle_request(request):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -80,7 +82,6 @@ async def handle_request(request):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, contact_handler))
 
     if request.method == "GET":
-        # Установка вебхука
         webhook_url = f"https://{request.host}/telegram_bot"
         await app.bot.set_webhook(webhook_url)
         return "Webhook set", 200
@@ -97,13 +98,13 @@ async def handle_request(request):
 
 # --- Логика бота ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Шаг 0: Приветствие"""
+    """Приветствие и старт брифа"""
     await update.message.reply_text(
         "Привет! 👋\n"
-        "Я помогу тебе заполнить бриф на разработку сайта.\n"
-        "Нажми кнопку ниже, чтобы начать:"
+        "Я помогу вам заполнить бриф на разработку сайта.\n"
+        "Нажмите кнопку ниже, чтобы начать:"
     )
-    
+
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Заполнить бриф", callback_data="start_brief")]
     ])
@@ -112,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Подтверждаем нажатие
+    await query.answer()  # Подтверждаем нажатие кнопки
 
     data = query.data
 
@@ -136,16 +137,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=get_budget_keyboard())
 
     elif data.startswith("step4:"):
+        # Сохраняем бюджет
         context.user_data['budget'] = data.split(":", 1)[1]
-        await query.edit_message_text(
+
+        # Убираем инлайн-кнопки
+        await query.edit_message_reply_markup(reply_markup=None)
+
+        # Отправляем НОВОЕ сообщение с просьбой ввести контакт
+        await query.message.reply_text(
             "🔹 Последний шаг: оставьте контакт (email или телефон), чтобы я с вами связался:",
-            reply_markup=ReplyKeyboardRemove()
+            reply_markup=ReplyKeyboardRemove()  # Убираем все клавиатуры
         )
+
+        # Включаем режим ожидания текста
         context.user_data['awaiting_contact'] = True
 
 
-# Обработка текстового контакта
 async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка ввода контакта"""
     if not context.user_data.get('awaiting_contact'):
         await update.message.reply_text("Чтобы начать, нажмите /start")
         return
@@ -153,7 +162,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.text
     context.user_data['contact'] = contact
 
-    # Формируем бриф
+    # Формируем сообщение
     brief = (
         "📩 *Новый бриф от клиента*\n\n"
         f"👤 Имя: {update.effective_user.full_name}\n"
@@ -174,9 +183,10 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=brief,
             parse_mode="Markdown"
         )
+        print(f"[INFO] Бриф отправлен владельцу @{OWNER_USERNAME}")
     except Exception as e:
-        print(f"Ошибка отправки владельцу: {e}")
-        # Альтернатива: если не получается по username — используй ID
+        print(f"[ERROR] Не удалось отправить бриф: {e}")
+        # Альтернатива: если username не работает, используй числовой ID
         # await context.bot.send_message(chat_id=123456789, text=brief)
 
     # Подтверждение клиенту
@@ -185,5 +195,5 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Свяжусь с вами в ближайшее время."
     )
 
-    # Сброс
+    # Очистка данных
     context.user_data.clear()
