@@ -27,6 +27,7 @@ CHANNEL_ID = "-1002903538672"
 # === Этапы разговора ===
 (
     STEP_TYPE,
+    STEP_ENGINE,
     STEP_FEATURES,
     STEP_TIMELINE,
     STEP_BUDGET,
@@ -42,19 +43,12 @@ CHANNEL_ID = "-1002903538672"
     STEP_SITE_STRUCTURE,
     STEP_EXTRA_INFO,
     STEP_CONTACT,
-    EDITING,
 ) = range(17)
 
 # === Клавиатуры ===
-def get_edit_keyboard():
+def get_new_brief_button():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_brief")]
-    ])
-
-def get_save_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Сохранить и отправить снова", callback_data="save_and_resend")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_edit")]
+        [InlineKeyboardButton("📝 Заполнить новый бриф", callback_data="start_brief")]
     ])
 
 def get_type_keyboard():
@@ -63,30 +57,31 @@ def get_type_keyboard():
         [InlineKeyboardButton("Лендинг", callback_data="step1:Лендинг")],
         [InlineKeyboardButton("Интернет-магазин", callback_data="step1:Интернет-магазин")],
         [InlineKeyboardButton("Корпоративный сайт", callback_data="step1:Корпоративный сайт")],
+        [InlineKeyboardButton("Многостраничный сайт", callback_data="step1:Многостраничный сайт")],
+        [InlineKeyboardButton("SMM-портфолио", callback_data="step1:SMM-портфолио")],
+        [InlineKeyboardButton("Landing page с формой", callback_data="step1:Landing page с формой")],
     ])
 
-def get_features_keyboard():
+def get_engine_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Чат-бот", callback_data="step2:Чат-бот")],
-        [InlineKeyboardButton("Онлайн-оплата", callback_data="step2:Онлайн-оплата")],
-        [InlineKeyboardButton("Админка", callback_data="step2:Админка")],
-        [InlineKeyboardButton("Мобильное приложение", callback_data="step2:Мобильное приложение")],
-        [InlineKeyboardButton("Нет ничего", callback_data="step2:Нет")],
+        [InlineKeyboardButton("Tilda (для начинающих)", callback_data="step2:Tilda")],
+        [InlineKeyboardButton("WordPress (для средних/крупных)", callback_data="step2:WordPress")],
+        [InlineKeyboardButton("Другой движок", callback_data="step2:Другой")],
     ])
 
 def get_timeline_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Срочно (1–2 недели)", callback_data="step3:Срочно")],
-        [InlineKeyboardButton("1–2 месяца", callback_data="step3:1-2 месяца")],
-        [InlineKeyboardButton("Не определено", callback_data="step3:Не определено")],
+        [InlineKeyboardButton("Надо было вчера (1–2 дня)", callback_data="step3:1-2 дня")],
+        [InlineKeyboardButton("Пока не горит (1–2 недели)", callback_data="step3:1-2 недели")],
+        [InlineKeyboardButton("Можно не спеша (1–2 месяца)", callback_data="step3:1-2 месяца")],
     ])
 
 def get_budget_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("До 1000$", callback_data="step4:До 1000$")],
-        [InlineKeyboardButton("1000–3000$", callback_data="step4:1000–3000$")],
-        [InlineKeyboardButton("3000–7000$", callback_data="step4:3000–7000$")],
-        [InlineKeyboardButton("Более 7000$", callback_data="step4:Более 7000$")],
+        [InlineKeyboardButton("От 200$", callback_data="step4:от 200$")],
+        [InlineKeyboardButton("500$–700$", callback_data="step4:500$–700$")],
+        [InlineKeyboardButton("1000$", callback_data="step4:1000$")],
+        [InlineKeyboardButton("Более 3000$", callback_data="step4:более 3000$")],
     ])
 
 def get_goals_keyboard():
@@ -97,6 +92,24 @@ def get_goals_keyboard():
         [InlineKeyboardButton("Увеличить лояльность", callback_data="step8:Увеличить лояльность клиентов")],
         [InlineKeyboardButton("Другое", callback_data="step8:Другое")],
     ])
+
+# Множественный выбор доп. функций
+FEATURES_MAP = {
+    "ai": "Чат-бот с ИИ",
+    "payment": "Онлайн-оплата",
+    "ads": "Реклама в Google",
+    "seo": "SEO-оптимизация",
+    "logo": "Разработка логотипа",
+}
+
+def get_features_keyboard(selected=None):
+    if selected is None:
+        selected = []
+    buttons = []
+    for key, label in FEATURES_MAP.items():
+        status = "✅" if key in selected else "⬜️"
+        buttons.append([InlineKeyboardButton(f"{status} {label}", callback_data=f"feature:{key}")])
+    return InlineKeyboardMarkup(buttons)
 
 
 # === Точка входа для Cloud Functions ===
@@ -170,20 +183,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif data.startswith("step1:"):
             type_ = data.split(":", 1)[1]
-            doc_ref.set({"type": type_, "step": STEP_FEATURES})
-            await query.edit_message_text("🔹 Шаг 2: Какие дополнительные функции нужны?")
-            await query.edit_message_reply_markup(reply_markup=get_features_keyboard())
+            doc_ref.set({"type": type_, "step": STEP_ENGINE})
+            await query.edit_message_text("🔹 Шаг 2: Какой движок сайта вы хотите?")
+            await query.edit_message_reply_markup(reply_markup=get_engine_keyboard())
 
         elif data.startswith("step2:"):
-            features = data.split(":", 1)[1]
-            doc_ref.update({"features": features, "step": STEP_TIMELINE})
-            await query.edit_message_text("🔹 Шаг 3: Какие сроки реализации?")
+            engine = data.split(":", 1)[1]
+            doc_ref.update({"engine": engine, "step": STEP_FEATURES, "features": []})
+            await query.edit_message_text("🔹 Шаг 3: Выберите дополнительные функции:")
+            await query.edit_message_reply_markup(reply_markup=get_features_keyboard())
+
+        elif data.startswith("feature:"):
+            feature_key = data.split(":", 1)[1]
+            doc = doc_ref.get()
+            if not doc.exists:
+                return
+            data_dict = doc.to_dict()
+            selected = data_dict.get("features", [])
+            if feature_key in selected:
+                selected.remove(feature_key)
+            else:
+                selected.append(feature_key)
+            doc_ref.update({"features": selected})
+            await query.edit_message_reply_markup(reply_markup=get_features_keyboard(selected))
+
+        elif data == "features_done":
+            doc = doc_ref.get()
+            if not doc.exists:
+                return
+            selected = doc.to_dict().get("features", [])
+            if not selected:
+                await query.answer("Выберите хотя бы одну функцию", show_alert=True)
+                return
+            doc_ref.update({"step": STEP_TIMELINE})
+            await query.edit_message_text("🔹 Шаг 4: Сроки реализации?")
             await query.edit_message_reply_markup(reply_markup=get_timeline_keyboard())
 
         elif data.startswith("step3:"):
             timeline = data.split(":", 1)[1]
             doc_ref.update({"timeline": timeline, "step": STEP_BUDGET})
-            await query.edit_message_text("🔹 Шаг 4: Ваш бюджет?")
+            await query.edit_message_text("🔹 Шаг 5: Ваш бюджет?")
             await query.edit_message_reply_markup(reply_markup=get_budget_keyboard())
 
         elif data.startswith("step4:"):
@@ -191,120 +230,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             doc_ref.update({"budget": budget, "step": STEP_BUSINESS_NICHE})
             await query.edit_message_reply_markup(reply_markup=None)
             await query.message.reply_text(
-                "🔹 Шаг 5: Ниша вашего бизнеса?\n"
-                "Напишите текстом:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 6: Ниша вашего бизнеса?\n"
+                "Напишите текстом:"
             )
 
         elif data.startswith("step8:"):
             goal = data.split(":", 1)[1]
             doc_ref.update({"site_goal": goal, "step": "custom_goal" if goal == "Другое" else STEP_SITE_STYLE})
             if goal == "Другое":
-                await query.message.reply_text("🔹 Уточните цель сайта:", reply_markup=get_edit_keyboard())
+                await query.message.reply_text("🔹 Уточните цель сайта:")
             else:
                 await query.message.reply_text(
-                    "🔹 Шаг 9: Желаемый стиль сайта?\n"
-                    "Опишите текстом:",
-                    reply_markup=get_edit_keyboard()
+                    "🔹 Шаг 13: Желаемый стиль сайта?\n"
+                    "Опишите текстом:"
                 )
-
-        elif data == "edit_brief":
-            # Начинаем редактирование
-            doc = doc_ref.get()
-            if not doc.exists:
-                await query.message.reply_text("Нет активного брифа для редактирования.")
-                return
-
-            data = doc.to_dict()
-            brief_number = data.get("brief_number", "BRF-000")
-
-            # Формируем текст брифа
-            text = (
-                f"📝 *Редактирование брифа* `{brief_number}`\n\n"
-                f"👤 Имя: {update.effective_user.full_name}\n"
-                f"🆔 ID: {update.effective_user.id}\n"
-                f"🔗 @: @{update.effective_user.username or 'не указан'}\n\n"
-                f"🌐 Тип сайта: {data.get('type', '—')}\n"
-                f"⚙️ Функции: {data.get('features', '—')}\n"
-                f"📅 Сроки: {data.get('timeline', '—')}\n"
-                f"💰 Бюджет: {data.get('budget', '—')}\n\n"
-                f"🎯 Ниша: {data.get('business_niche', '—')}\n"
-                f"🏢 О компании: {data.get('company_info', '—')}\n"
-                f"🎨 Вдохновение: {data.get('inspiration', '—')}\n"
-                f"📦 Материалы: {data.get('materials', '—')}\n"
-                f"🔍 SEO: {data.get('seo_keywords', '—')}\n"
-                f"⚔️ Конкуренты: {data.get('competitors', '—')}\n"
-                f"💡 Проблема: {data.get('product_problem', '—')}\n"
-                f"🎯 Цель сайта: {data.get('site_goal', '—')}\n"
-                f"🎨 Стиль: {data.get('site_style', '—')}\n"
-                f"🗂 Структура: {data.get('site_structure', '—')}\n"
-                f"📌 Доп. инфо: {data.get('extra_info', '—')}\n"
-                f"📞 Контакт: {data.get('contact', '—')}"
-            )
-
-            await query.message.reply_text(
-                text,
-                parse_mode="Markdown",
-                reply_markup=get_save_keyboard()
-            )
-            doc_ref.update({"edit_mode": True})
-
-        elif data == "save_and_resend":
-            # Сохраняем и отправляем снова
-            doc = doc_ref.get()
-            if not doc.exists:
-                await query.message.reply_text("Нет активного брифа.")
-                return
-
-            data = doc.to_dict()
-            brief_number = data.get("brief_number", "BRF-000")
-
-            # Формируем бриф
-            brief = (
-                f"📩 *Новый бриф от клиента* `{brief_number}`\n\n"
-                f"👤 Имя: {update.effective_user.full_name}\n"
-                f"🆔 ID: {update.effective_user.id}\n"
-                f"🔗 @: @{update.effective_user.username or 'не указан'}\n\n"
-                f"🌐 Тип сайта: {data.get('type', '—')}\n"
-                f"⚙️ Функции: {data.get('features', '—')}\n"
-                f"📅 Сроки: {data.get('timeline', '—')}\n"
-                f"💰 Бюджет: {data.get('budget', '—')}\n\n"
-                f"🎯 Ниша: {data.get('business_niche', '—')}\n"
-                f"🏢 О компании: {data.get('company_info', '—')}\n"
-                f"🎨 Вдохновение: {data.get('inspiration', '—')}\n"
-                f"📦 Материалы: {data.get('materials', '—')}\n"
-                f"🔍 SEO: {data.get('seo_keywords', '—')}\n"
-                f"⚔️ Конкуренты: {data.get('competitors', '—')}\n"
-                f"💡 Проблема: {data.get('product_problem', '—')}\n"
-                f"🎯 Цель сайта: {data.get('site_goal', '—')}\n"
-                f"🎨 Стиль: {data.get('site_style', '—')}\n"
-                f"🗂 Структура: {data.get('site_structure', '—')}\n"
-                f"📌 Доп. инфо: {data.get('extra_info', '—')}\n"
-                f"📞 Контакт: {data.get('contact', '—')}"
-            )
-
-            # Отправляем в канал
-            try:
-                await context.bot.send_message(
-                    chat_id=CHANNEL_ID,
-                    text=brief,
-                    parse_mode="Markdown"
-                )
-                print(f"[INFO] ✅ Бриф {brief_number} отправлен в канал")
-            except Exception as e:
-                print(f"[ERROR] ❌ Ошибка отправки: {e}")
-
-            # Подтверждение клиенту
-            await query.message.reply_text(
-                f"✅ Бриф `{brief_number}` успешно отправлен снова!"
-            )
-
-            # Очистка
-            doc_ref.delete()
-
-        elif data == "cancel_edit":
-            await query.message.reply_text("Редактирование отменено.")
-            doc_ref.delete()
 
     except Exception as e:
         print(f"[ERROR] button_handler: {e}")
@@ -326,16 +265,17 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
 
-        # Обработка шагов
+        # Сохраняем шаг для редактирования
+        next_step = None
+
         if step == STEP_BUSINESS_NICHE:
             doc_ref.update({
                 "business_niche": text,
                 "step": STEP_COMPANY_INFO
             })
             await update.message.reply_text(
-                "🔹 Шаг 6: Расскажите о вашей компании\n"
-                "История, миссия, команда — что угодно:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 7: Расскажите о вашей компании\n"
+                "История, миссия, команда — что угодно:"
             )
 
         elif step == STEP_COMPANY_INFO:
@@ -344,9 +284,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_INSPIRATION
             })
             await update.message.reply_text(
-                "🔹 Шаг 7: Ссылки на сайты, которые вам нравятся\n"
-                "Напишите 3-4 ссылки:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 8: Ссылки на сайты, которые вам нравятся\n"
+                "Напишите 3-4 ссылки:"
             )
 
         elif step == STEP_INSPIRATION:
@@ -355,9 +294,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_AVAILABLE_MATERIALS
             })
             await update.message.reply_text(
-                "🔹 Шаг 8: Что у вас уже есть для сайта?\n"
-                "Логотип, фирменный стиль, тексты, фото и т.д.:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 9: Что у вас уже есть для сайта?\n"
+                "Логотип, фирменный стиль, тексты, фото и т.д.:"
             )
 
         elif step == STEP_AVAILABLE_MATERIALS:
@@ -366,9 +304,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_SEO_KEYWORDS
             })
             await update.message.reply_text(
-                "🔹 Шаг 9: По каким запросам вас можно найти в Google?\n"
-                "Например: 'купить кофе в Алматы', 'дизайн интерьера':",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 10: По каким запросам вас можно найти в Google?\n"
+                "Например: 'купить кофе в Алматы', 'дизайн интерьера':"
             )
 
         elif step == STEP_SEO_KEYWORDS:
@@ -377,9 +314,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_COMPETITORS
             })
             await update.message.reply_text(
-                "🔹 Шаг 10: Кто ваши конкуренты?\n"
-                "Укажите сайты или названия брендов:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 11: Кто ваши конкуренты?\n"
+                "Укажите сайты или названия брендов:"
             )
 
         elif step == STEP_COMPETITORS:
@@ -388,9 +324,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_PRODUCT_PROBLEM
             })
             await update.message.reply_text(
-                "🔹 Шаг 11: Какую проблему решает ваш продукт?\n"
-                "Опишите текстом:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 12: Какую проблему решает ваш продукт?\n"
+                "Опишите текстом:"
             )
 
         elif step == STEP_PRODUCT_PROBLEM:
@@ -399,7 +334,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_SITE_GOALS
             })
             await update.message.reply_text(
-                "🔹 Шаг 12: Какие цели должен решить сайт?",
+                "🔹 Шаг 13: Какие цели должен решить сайт?",
                 reply_markup=get_goals_keyboard()
             )
 
@@ -409,9 +344,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_SITE_STYLE
             })
             await update.message.reply_text(
-                "🔹 Шаг 13: Желаемый стиль сайта?\n"
-                "Опишите текстом:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 14: Желаемый стиль сайта?\n"
+                "Опишите текстом:"
             )
 
         elif step == STEP_SITE_STYLE:
@@ -420,9 +354,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_SITE_STRUCTURE
             })
             await update.message.reply_text(
-                "🔹 Шаг 14: Какие разделы должны быть на сайте?\n"
-                "Опишите структуру:",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 15: Какие разделы должны быть на сайте?\n"
+                "Опишите структуру:"
             )
 
         elif step == STEP_SITE_STRUCTURE:
@@ -431,9 +364,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "step": STEP_EXTRA_INFO
             })
             await update.message.reply_text(
-                "🔹 Шаг 15: Дополнительная информация:\n"
-                "Что ещё важно знать?",
-                reply_markup=get_edit_keyboard()
+                "🔹 Шаг 16: Дополнительная информация:\n"
+                "Что ещё важно знать?"
             )
 
         elif step == STEP_EXTRA_INFO:
@@ -463,14 +395,14 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             doc_ref.update({"contact": text, "brief_number": brief_number})
 
-            # Формируем бриф
-            brief = (
-                f"📩 *Новый бриф от клиента* `{brief_number}`\n\n"
-                f"👤 Имя: {update.effective_user.full_name}\n"
-                f"🆔 ID: {update.effective_user.id}\n"
-                f"🔗 @: @{update.effective_user.username or 'не указан'}\n\n"
+            # Формируем итоговый бриф
+            features_list = ", ".join([FEATURES_MAP[key] for key in data.get("features", [])]) or "—"
+
+            final_brief = (
+                f"📋 *Ваш бриф* `{brief_number}`\n\n"
                 f"🌐 Тип сайта: {data.get('type', '—')}\n"
-                f"⚙️ Функции: {data.get('features', '—')}\n"
+                f"🛠 Движок: {data.get('engine', '—')}\n"
+                f"⚙️ Функции: {features_list}\n"
                 f"📅 Сроки: {data.get('timeline', '—')}\n"
                 f"💰 Бюджет: {data.get('budget', '—')}\n\n"
                 f"🎯 Ниша: {data.get('business_niche', '—')}\n"
@@ -491,18 +423,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=CHANNEL_ID,
-                    text=brief,
+                    text=final_brief,
                     parse_mode="Markdown"
                 )
                 print(f"[INFO] ✅ Бриф {brief_number} отправлен в канал")
             except Exception as e:
                 print(f"[ERROR] ❌ Ошибка отправки: {e}")
 
-            # Отправляем клиенту
+            # Показываем клиенту итог + кнопка
             await update.message.reply_text(
-                f"✅ Спасибо! Я получил ваш бриф `{brief_number}`.\n"
+                final_brief + "\n\n✅ Спасибо! Я получил ваш бриф.\n"
                 "Свяжусь с вами в ближайшее время.",
-                reply_markup=get_edit_keyboard()
+                parse_mode="Markdown",
+                reply_markup=get_new_brief_button()
             )
 
             # Очистка
