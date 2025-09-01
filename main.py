@@ -45,10 +45,16 @@ CHANNEL_ID = "-1002903538672"
     EDITING,
 ) = range(17)
 
-# === Клавиатуры с кнопкой "Назад" ===
-def get_back_keyboard():
+# === Клавиатуры ===
+def get_edit_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back")]
+        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_brief")]
+    ])
+
+def get_save_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Сохранить и отправить снова", callback_data="save_and_resend")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_edit")]
     ])
 
 def get_type_keyboard():
@@ -92,11 +98,6 @@ def get_goals_keyboard():
         [InlineKeyboardButton("Другое", callback_data="step8:Другое")],
     ])
 
-def get_edit_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_brief")]
-    ])
-
 
 # === Точка входа для Cloud Functions ===
 @http
@@ -136,7 +137,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     doc_ref = DB.collection("users").document(str(user_id))
 
-    # Очистка старой сессии
     try:
         if doc_ref.get().exists:
             doc_ref.delete()
@@ -193,41 +193,118 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(
                 "🔹 Шаг 5: Ниша вашего бизнеса?\n"
                 "Напишите текстом:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif data.startswith("step8:"):
             goal = data.split(":", 1)[1]
             doc_ref.update({"site_goal": goal, "step": "custom_goal" if goal == "Другое" else STEP_SITE_STYLE})
             if goal == "Другое":
-                await query.message.reply_text("🔹 Уточните цель сайта:", reply_markup=get_back_keyboard())
+                await query.message.reply_text("🔹 Уточните цель сайта:", reply_markup=get_edit_keyboard())
             else:
                 await query.message.reply_text(
                     "🔹 Шаг 9: Желаемый стиль сайта?\n"
                     "Опишите текстом:",
-                    reply_markup=get_back_keyboard()
+                    reply_markup=get_edit_keyboard()
                 )
 
-        elif data == "back":
-            # Логика "Назад"
-            data = doc_ref.get().to_dict()
-            step = data.get("step")
-
-            if step in [STEP_BUSINESS_NICHE, "custom_goal", STEP_SITE_STYLE]:
-                await query.message.reply_text("🔹 Выберите тип сайта:", reply_markup=get_type_keyboard())
-                doc_ref.update({"step": STEP_TYPE})
-
-            elif step == STEP_COMPANY_INFO:
-                await query.message.reply_text("🔹 Выберите тип сайта:", reply_markup=get_type_keyboard())
-                doc_ref.update({"step": STEP_TYPE})
-
-            elif step == STEP_INSPIRATION:
-                await query.message.reply_text("🔹 Ниша вашего бизнеса:\nНапишите текстом:", reply_markup=get_back_keyboard())
-                doc_ref.update({"step": STEP_BUSINESS_NICHE})
-
         elif data == "edit_brief":
-            await query.message.reply_text("🔹 Вы можете начать с любого шага. Нажмите /start и пройдите нужные этапы.")
-            await query.delete_message()
+            # Начинаем редактирование
+            doc = doc_ref.get()
+            if not doc.exists:
+                await query.message.reply_text("Нет активного брифа для редактирования.")
+                return
+
+            data = doc.to_dict()
+            brief_number = data.get("brief_number", "BRF-000")
+
+            # Формируем текст брифа
+            text = (
+                f"📝 *Редактирование брифа* `{brief_number}`\n\n"
+                f"👤 Имя: {update.effective_user.full_name}\n"
+                f"🆔 ID: {update.effective_user.id}\n"
+                f"🔗 @: @{update.effective_user.username or 'не указан'}\n\n"
+                f"🌐 Тип сайта: {data.get('type', '—')}\n"
+                f"⚙️ Функции: {data.get('features', '—')}\n"
+                f"📅 Сроки: {data.get('timeline', '—')}\n"
+                f"💰 Бюджет: {data.get('budget', '—')}\n\n"
+                f"🎯 Ниша: {data.get('business_niche', '—')}\n"
+                f"🏢 О компании: {data.get('company_info', '—')}\n"
+                f"🎨 Вдохновение: {data.get('inspiration', '—')}\n"
+                f"📦 Материалы: {data.get('materials', '—')}\n"
+                f"🔍 SEO: {data.get('seo_keywords', '—')}\n"
+                f"⚔️ Конкуренты: {data.get('competitors', '—')}\n"
+                f"💡 Проблема: {data.get('product_problem', '—')}\n"
+                f"🎯 Цель сайта: {data.get('site_goal', '—')}\n"
+                f"🎨 Стиль: {data.get('site_style', '—')}\n"
+                f"🗂 Структура: {data.get('site_structure', '—')}\n"
+                f"📌 Доп. инфо: {data.get('extra_info', '—')}\n"
+                f"📞 Контакт: {data.get('contact', '—')}"
+            )
+
+            await query.message.reply_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=get_save_keyboard()
+            )
+            doc_ref.update({"edit_mode": True})
+
+        elif data == "save_and_resend":
+            # Сохраняем и отправляем снова
+            doc = doc_ref.get()
+            if not doc.exists:
+                await query.message.reply_text("Нет активного брифа.")
+                return
+
+            data = doc.to_dict()
+            brief_number = data.get("brief_number", "BRF-000")
+
+            # Формируем бриф
+            brief = (
+                f"📩 *Новый бриф от клиента* `{brief_number}`\n\n"
+                f"👤 Имя: {update.effective_user.full_name}\n"
+                f"🆔 ID: {update.effective_user.id}\n"
+                f"🔗 @: @{update.effective_user.username or 'не указан'}\n\n"
+                f"🌐 Тип сайта: {data.get('type', '—')}\n"
+                f"⚙️ Функции: {data.get('features', '—')}\n"
+                f"📅 Сроки: {data.get('timeline', '—')}\n"
+                f"💰 Бюджет: {data.get('budget', '—')}\n\n"
+                f"🎯 Ниша: {data.get('business_niche', '—')}\n"
+                f"🏢 О компании: {data.get('company_info', '—')}\n"
+                f"🎨 Вдохновение: {data.get('inspiration', '—')}\n"
+                f"📦 Материалы: {data.get('materials', '—')}\n"
+                f"🔍 SEO: {data.get('seo_keywords', '—')}\n"
+                f"⚔️ Конкуренты: {data.get('competitors', '—')}\n"
+                f"💡 Проблема: {data.get('product_problem', '—')}\n"
+                f"🎯 Цель сайта: {data.get('site_goal', '—')}\n"
+                f"🎨 Стиль: {data.get('site_style', '—')}\n"
+                f"🗂 Структура: {data.get('site_structure', '—')}\n"
+                f"📌 Доп. инфо: {data.get('extra_info', '—')}\n"
+                f"📞 Контакт: {data.get('contact', '—')}"
+            )
+
+            # Отправляем в канал
+            try:
+                await context.bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=brief,
+                    parse_mode="Markdown"
+                )
+                print(f"[INFO] ✅ Бриф {brief_number} отправлен в канал")
+            except Exception as e:
+                print(f"[ERROR] ❌ Ошибка отправки: {e}")
+
+            # Подтверждение клиенту
+            await query.message.reply_text(
+                f"✅ Бриф `{brief_number}` успешно отправлен снова!"
+            )
+
+            # Очистка
+            doc_ref.delete()
+
+        elif data == "cancel_edit":
+            await query.message.reply_text("Редактирование отменено.")
+            doc_ref.delete()
 
     except Exception as e:
         print(f"[ERROR] button_handler: {e}")
@@ -249,9 +326,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
 
-        # Сохраняем шаг для редактирования
-        next_step = None
-
+        # Обработка шагов
         if step == STEP_BUSINESS_NICHE:
             doc_ref.update({
                 "business_niche": text,
@@ -260,7 +335,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 6: Расскажите о вашей компании\n"
                 "История, миссия, команда — что угодно:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_COMPANY_INFO:
@@ -271,7 +346,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 7: Ссылки на сайты, которые вам нравятся\n"
                 "Напишите 3-4 ссылки:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_INSPIRATION:
@@ -282,7 +357,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 8: Что у вас уже есть для сайта?\n"
                 "Логотип, фирменный стиль, тексты, фото и т.д.:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_AVAILABLE_MATERIALS:
@@ -293,7 +368,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 9: По каким запросам вас можно найти в Google?\n"
                 "Например: 'купить кофе в Алматы', 'дизайн интерьера':",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_SEO_KEYWORDS:
@@ -304,7 +379,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 10: Кто ваши конкуренты?\n"
                 "Укажите сайты или названия брендов:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_COMPETITORS:
@@ -315,7 +390,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 11: Какую проблему решает ваш продукт?\n"
                 "Опишите текстом:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_PRODUCT_PROBLEM:
@@ -336,7 +411,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 13: Желаемый стиль сайта?\n"
                 "Опишите текстом:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_SITE_STYLE:
@@ -347,7 +422,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 14: Какие разделы должны быть на сайте?\n"
                 "Опишите структуру:",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_SITE_STRUCTURE:
@@ -358,7 +433,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔹 Шаг 15: Дополнительная информация:\n"
                 "Что ещё важно знать?",
-                reply_markup=get_back_keyboard()
+                reply_markup=get_edit_keyboard()
             )
 
         elif step == STEP_EXTRA_INFO:
@@ -412,16 +487,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📞 Контакт: {text}"
             )
 
-            # Очистка чата
-            try:
-                # Удаляем все сообщения бота (если разрешено)
-                pass  # Telegram API не позволяет удалять сообщения массово, но можно редактировать
-                # Вместо удаления — отправим финальный бриф
-            except:
-                pass
-
             # Отправляем в канал
-            print(f"[DEBUG] Отправка брифа {brief_number} в канал")
             try:
                 await context.bot.send_message(
                     chat_id=CHANNEL_ID,
@@ -439,7 +505,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_edit_keyboard()
             )
 
-            # Очистка сессии
+            # Очистка
             doc_ref.delete()
 
     except Exception as e:
