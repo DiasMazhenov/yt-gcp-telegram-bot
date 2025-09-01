@@ -46,17 +46,6 @@ CHANNEL_ID = "-1002903538672"
 ) = range(17)
 
 # === Клавиатуры ===
-def get_nav_keyboard(current_step):
-    buttons = []
-    row = []
-    if current_step > STEP_TYPE:
-        row.append(InlineKeyboardButton("⬅️ Назад", callback_data="prev"))
-    if current_step < STEP_CONTACT:
-        row.append(InlineKeyboardButton("➡️ Далее", callback_data="next"))
-    if row:
-        buttons.append(row)
-    return InlineKeyboardMarkup(buttons) if buttons else None
-
 def get_new_brief_button():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📝 Заполнить новый бриф", callback_data="start_brief")]
@@ -189,17 +178,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     try:
-        # Получаем текущий шаг
-        doc = doc_ref.get()
-        if doc.exists:
-            current_step = doc.to_dict().get("step", STEP_TYPE)
-        else:
-            current_step = STEP_TYPE
-
         if data == "start_brief":
             await query.edit_message_text("🔹 Шаг 1: Выберите тип сайта:")
             await query.edit_message_reply_markup(reply_markup=get_type_keyboard())
-            doc_ref.set({"step": STEP_TYPE})
 
         elif data.startswith("step1:"):
             type_ = data.split(":", 1)[1]
@@ -251,55 +232,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_reply_markup(reply_markup=None)
             await query.message.reply_text(
                 "🔹 Шаг 6: Ниша вашего бизнеса?\n"
-                "Напишите текстом:",
-                reply_markup=get_nav_keyboard(STEP_BUSINESS_NICHE)
+                "Напишите текстом:"
             )
-
-        elif data == "prev":
-            # Логика "Назад"
-            if current_step == STEP_ENGINE:
-                await query.message.reply_text("🔹 Шаг 1: Выберите тип сайта:", reply_markup=get_type_keyboard())
-                doc_ref.update({"step": STEP_TYPE})
-            elif current_step == STEP_FEATURES:
-                await query.message.reply_text("🔹 Шаг 2: Какой движок сайта вы хотите?", reply_markup=get_engine_keyboard())
-                doc_ref.update({"step": STEP_ENGINE})
-            elif current_step == STEP_TIMELINE:
-                await query.message.reply_text("🔹 Шаг 3: Выберите дополнительные функции:", reply_markup=get_features_keyboard())
-                doc_ref.update({"step": STEP_FEATURES})
-            elif current_step == STEP_BUDGET:
-                await query.message.reply_text("🔹 Шаг 4: Сроки реализации?", reply_markup=get_timeline_keyboard())
-                doc_ref.update({"step": STEP_TIMELINE})
-            elif current_step == STEP_BUSINESS_NICHE:
-                await query.message.reply_text("🔹 Шаг 5: Ваш бюджет?", reply_markup=get_budget_keyboard())
-                doc_ref.update({"step": STEP_BUDGET})
-            else:
-                prev_step = max(current_step - 1, STEP_TYPE)
-                # Можно расширить под другие шаги
-                await query.message.reply_text("Используйте /start, чтобы начать заново.")
-
-        elif data == "next":
-            # Логика "Далее"
-            if current_step == STEP_TYPE and doc.exists and "type" in doc.to_dict():
-                await query.message.reply_text("🔹 Шаг 2: Какой движок сайта вы хотите?", reply_markup=get_engine_keyboard())
-                doc_ref.update({"step": STEP_ENGINE})
-            elif current_step == STEP_ENGINE and doc.exists and "engine" in doc.to_dict():
-                await query.message.reply_text("🔹 Шаг 3: Выберите дополнительные функции:", reply_markup=get_features_keyboard())
-                doc_ref.update({"step": STEP_FEATURES})
-            elif current_step == STEP_FEATURES and doc.exists and "features" in doc.to_dict():
-                await query.message.reply_text("🔹 Шаг 4: Сроки реализации?", reply_markup=get_timeline_keyboard())
-                doc_ref.update({"step": STEP_TIMELINE})
-            elif current_step == STEP_TIMELINE and doc.exists and "timeline" in doc.to_dict():
-                await query.message.reply_text("🔹 Шаг 5: Ваш бюджет?", reply_markup=get_budget_keyboard())
-                doc_ref.update({"step": STEP_BUDGET})
-            elif current_step == STEP_BUDGET and doc.exists and "budget" in doc.to_dict():
-                await query.message.reply_text(
-                    "🔹 Шаг 6: Ниша вашего бизнеса?\n"
-                    "Напишите текстом:",
-                    reply_markup=get_nav_keyboard(STEP_BUSINESS_NICHE)
-                )
-                doc_ref.update({"step": STEP_BUSINESS_NICHE})
-            else:
-                await query.answer("Сначала ответьте на текущий вопрос", show_alert=True)
 
         elif data.startswith("step8:"):
             goal = data.split(":", 1)[1]
@@ -340,8 +274,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 7: Расскажите о вашей компании\n"
-                "История, миссия, команда — что угодно:",
-                reply_markup=get_nav_keyboard(STEP_COMPANY_INFO)
+                "История, миссия, команда — что угодно:"
             )
 
         elif step == STEP_COMPANY_INFO:
@@ -351,8 +284,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 8: Ссылки на сайты, которые вам нравятся\n"
-                "Напишите 3-4 ссылки:",
-                reply_markup=get_nav_keyboard(STEP_INSPIRATION)
+                "Напишите 3-4 ссылки:"
             )
 
         elif step == STEP_INSPIRATION:
@@ -362,8 +294,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 9: Что у вас уже есть для сайта?\n"
-                "Логотип, фирменный стиль, тексты, фото и т.д.:",
-                reply_markup=get_nav_keyboard(STEP_AVAILABLE_MATERIALS)
+                "Логотип, фирменный стиль, тексты, фото и т.д.:"
             )
 
         elif step == STEP_AVAILABLE_MATERIALS:
@@ -373,8 +304,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 10: По каким запросам вас можно найти в Google?\n"
-                "Например: 'купить кофе в Алматы', 'дизайн интерьера':",
-                reply_markup=get_nav_keyboard(STEP_SEO_KEYWORDS)
+                "Например: 'купить кофе в Алматы', 'дизайн интерьера':"
             )
 
         elif step == STEP_SEO_KEYWORDS:
@@ -384,8 +314,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 11: Кто ваши конкуренты?\n"
-                "Укажите сайты или названия брендов:",
-                reply_markup=get_nav_keyboard(STEP_COMPETITORS)
+                "Укажите сайты или названия брендов:"
             )
 
         elif step == STEP_COMPETITORS:
@@ -395,8 +324,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 12: Какую проблему решает ваш продукт?\n"
-                "Опишите текстом:",
-                reply_markup=get_nav_keyboard(STEP_PRODUCT_PROBLEM)
+                "Опишите текстом:"
             )
 
         elif step == STEP_PRODUCT_PROBLEM:
@@ -416,8 +344,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 14: Желаемый стиль сайта?\n"
-                "Опишите текстом:",
-                reply_markup=get_nav_keyboard(STEP_SITE_STYLE)
+                "Опишите текстом:"
             )
 
         elif step == STEP_SITE_STYLE:
@@ -427,8 +354,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 15: Какие разделы должны быть на сайте?\n"
-                "Опишите структуру:",
-                reply_markup=get_nav_keyboard(STEP_SITE_STRUCTURE)
+                "Опишите структуру:"
             )
 
         elif step == STEP_SITE_STRUCTURE:
@@ -438,8 +364,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 "🔹 Шаг 16: Дополнительная информация:\n"
-                "Что ещё важно знать?",
-                reply_markup=get_nav_keyboard(STEP_EXTRA_INFO)
+                "Что ещё важно знать?"
             )
 
         elif step == STEP_EXTRA_INFO:
